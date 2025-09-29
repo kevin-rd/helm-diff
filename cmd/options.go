@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"os"
+
 	"github.com/spf13/pflag"
 
 	"github.com/databus23/helm-diff/v3/diff"
@@ -17,11 +19,19 @@ func AddDiffOptions(f *pflag.FlagSet, o *diff.Options) {
 	f.BoolVar(&o.StripTrailingCR, "strip-trailing-cr", false, "strip trailing carriage return on input")
 	f.Float32VarP(&o.FindRenames, "find-renames", "D", 0, "Enable rename detection if set to any value greater than 0. If specified, the value denotes the maximum fraction of changed content as lines added + removed compared to total lines in a diff for considering it a rename. Only objects of the same Kind are attempted to be matched")
 	f.StringArrayVar(&o.SuppressedOutputLineRegex, "suppress-output-line-regex", []string{}, "a regex to suppress diff output lines that match")
+	f.BoolVar(&o.CharLevelHighlight, "char-level-highlight", false, "highlight character-level differences within similar lines using bold formatting")
 }
 
 // ProcessDiffOptions processes the set flags and handles possible interactions between them
 func ProcessDiffOptions(f *pflag.FlagSet, o *diff.Options) {
 	if q, _ := f.GetBool("suppress-secrets"); q {
 		o.SuppressedKinds = append(o.SuppressedKinds, "Secret")
+	}
+
+	// Handle environment variable for character-level highlighting if flag was not explicitly set
+	if !f.Changed("char-level-highlight") {
+		if os.Getenv("HELM_DIFF_CHAR_LEVEL_HIGHLIGHT") == "true" {
+			o.CharLevelHighlight = true
+		}
 	}
 }

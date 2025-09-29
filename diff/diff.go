@@ -29,6 +29,7 @@ type Options struct {
 	SuppressedKinds           []string
 	FindRenames               float32
 	SuppressedOutputLineRegex []string
+	CharLevelHighlight        bool
 }
 
 type OwnershipDiff struct {
@@ -60,7 +61,7 @@ func ManifestReport(oldIndex, newIndex map[string]*manifest.MappingResult, optio
 
 func generateReport(oldIndex, newIndex map[string]*manifest.MappingResult, newOwnedReleases map[string]OwnershipDiff, options *Options) (bool, *Report, error) {
 	report := Report{}
-	report.setupReportFormat(options.OutputFormat)
+	report.setupReportFormatWithOptions(options.OutputFormat, options.CharLevelHighlight)
 	var possiblyRemoved []string
 
 	for name, diff := range newOwnedReleases {
@@ -420,6 +421,10 @@ func split(value string, stripTrailingCR bool) []string {
 }
 
 func printDiffRecords(suppressedKinds []string, kind string, context int, diffs []difflib.DiffRecord, to io.Writer) {
+	printDiffRecordsWithOptions(suppressedKinds, kind, context, diffs, to, false)
+}
+
+func printDiffRecordsWithOptions(suppressedKinds []string, kind string, context int, diffs []difflib.DiffRecord, to io.Writer, charLevelHighlight bool) {
 	for _, ckind := range suppressedKinds {
 		if ckind == kind {
 			str := fmt.Sprintf("+ Changes suppressed on sensitive content of type %s\n", kind)
@@ -428,23 +433,47 @@ func printDiffRecords(suppressedKinds []string, kind string, context int, diffs 
 		}
 	}
 
-	if context >= 0 {
-		distances := calculateDistances(diffs)
-		omitting := false
-		for i, diff := range diffs {
-			if distances[i] > context {
-				if !omitting {
-					_, _ = fmt.Fprintln(to, "...")
-					omitting = true
+	if charLevelHighlight {
+		// Use character-level highlighting
+		if context >= 0 {
+			distances := calculateDistances(diffs)
+			omitting := false
+			for i, diff := range diffs {
+				if distances[i] > context {
+					if !omitting {
+						_, _ = fmt.Fprintln(to, "...")
+						omitting = true
+					}
+				} else {
+					omitting = false
+					printDiffRecordWithCharHighlight(diff, diffs, i, to)
 				}
-			} else {
-				omitting = false
-				printDiffRecord(diff, to)
+			}
+		} else {
+			for i, diff := range diffs {
+				printDiffRecordWithCharHighlight(diff, diffs, i, to)
 			}
 		}
 	} else {
-		for _, diff := range diffs {
-			printDiffRecord(diff, to)
+		// Use original line-level highlighting
+		if context >= 0 {
+			distances := calculateDistances(diffs)
+			omitting := false
+			for i, diff := range diffs {
+				if distances[i] > context {
+					if !omitting {
+						_, _ = fmt.Fprintln(to, "...")
+						omitting = true
+					}
+				} else {
+					omitting = false
+					printDiffRecord(diff, to)
+				}
+			}
+		} else {
+			for _, diff := range diffs {
+				printDiffRecord(diff, to)
+			}
 		}
 	}
 }
@@ -464,6 +493,162 @@ func printDiffRecord(diff difflib.DiffRecord, to io.Writer) {
 			_, _ = fmt.Fprintf(to, "%s\n", "  "+text)
 		}
 	}
+}
+
+// printDiffRecordWithCharHighlight prints a single diff record with character-level highlighting
+func printDiffRecordWithCharHighlight(diff difflib.DiffRecord, diffs []difflib.DiffRecord, index int, to io.Writer) {
+	text := diff.Payload
+
+	switch diff.Delta {
+	case difflib.RightOnly:
+		// Check if there's a corresponding LeftOnly line to compare with
+		if enhanced := tryCharLevelHighlight(diff, diffs, index, true); enhanced != "" {
+			_, _ = fmt.Fprintf(to, "%s\n", enhanced)
+		} else {
+			_, _ = fmt.Fprintf(to, "%s\n", ansi.Color("+ "+text, "green"))
+		}
+	case difflib.LeftOnly:
+		// Check if there's a corresponding RightOnly line to compare with
+		if enhanced := tryCharLevelHighlight(diff, diffs, index, false); enhanced != "" {
+			_, _ = fmt.Fprintf(to, "%s\n", enhanced)
+		} else {
+			_, _ = fmt.Fprintf(to, "%s\n", ansi.Color("- "+text, "red"))
+		}
+	case difflib.Common:
+		if text == "" {
+			_, _ = fmt.Fprintln(to)
+		} else {
+			_, _ = fmt.Fprintf(to, "%s\n", "  "+text)
+		}
+	}
+}
+
+// tryCharLevelHighlight attempts to find a corresponding line to highlight character differences
+func tryCharLevelHighlight(diff difflib.DiffRecord, diffs []difflib.DiffRecord, index int, isAddition bool) string {
+	text := diff.Payload
+	var compareText string
+	var found bool
+
+	// Look for the opposite type in nearby lines
+	searchStart := index - 5
+	if searchStart < 0 {
+		searchStart = 0
+	}
+	searchEnd := index + 5
+	if searchEnd >= len(diffs) {
+		searchEnd = len(diffs) - 1
+	}
+
+	for i := searchStart; i <= searchEnd; i++ {
+		if i == index {
+			continue
+		}
+		otherDiff := diffs[i]
+		if (isAddition && otherDiff.Delta == difflib.LeftOnly) || (!isAddition && otherDiff.Delta == difflib.RightOnly) {
+			// Calculate similarity to see if this is a good match
+			similarity := calculateStringSimilarity(text, otherDiff.Payload)
+			if similarity > 0.7 { // If more than 70% similar, highlight differences
+				compareText = otherDiff.Payload
+				found = true
+				break
+			}
+		}
+	}
+
+	if !found {
+		return ""
+	}
+
+	// Generate character-level diff
+	prefix := "- "
+	baseColor := "red"
+	highlightColor := "red+b" // bold red for differences
+
+	if isAddition {
+		prefix = "+ "
+		baseColor = "green"
+		highlightColor = "green+b" // bold green for differences
+	}
+
+	highlighted := highlightCharDifferences(text, compareText, baseColor, highlightColor)
+	return ansi.Color(prefix, baseColor) + highlighted
+}
+
+// calculateStringSimilarity calculates how similar two strings are (0.0 to 1.0)
+func calculateStringSimilarity(a, b string) float64 {
+	if a == b {
+		return 1.0
+	}
+
+	maxLen := len(a)
+	if len(b) > maxLen {
+		maxLen = len(b)
+	}
+
+	if maxLen == 0 {
+		return 1.0
+	}
+
+	// Simple character-by-character comparison
+	matches := 0
+	minLen := len(a)
+	if len(b) < minLen {
+		minLen = len(b)
+	}
+
+	for i := 0; i < minLen; i++ {
+		if a[i] == b[i] {
+			matches++
+		}
+	}
+
+	return float64(matches) / float64(maxLen)
+}
+
+// highlightCharDifferences highlights character-level differences in a string
+func highlightCharDifferences(current, other string, baseColor, highlightColor string) string {
+	if current == other {
+		return ansi.Color(current, baseColor)
+	}
+
+	result := ""
+	currentRunes := []rune(current)
+	otherRunes := []rune(other)
+
+	maxLen := len(currentRunes)
+	if len(otherRunes) > maxLen {
+		maxLen = len(otherRunes)
+	}
+
+	i := 0
+	for i < maxLen {
+		var currentChar rune
+		var otherChar rune
+
+		if i < len(currentRunes) {
+			currentChar = currentRunes[i]
+		}
+		if i < len(otherRunes) {
+			otherChar = otherRunes[i]
+		}
+
+		if i >= len(currentRunes) {
+			// Current string is shorter, highlight remaining characters
+			result += ansi.Color(string(currentChar), highlightColor)
+		} else if i >= len(otherRunes) {
+			// Other string is shorter, highlight remaining characters
+			result += ansi.Color(string(currentChar), highlightColor)
+		} else if currentChar != otherChar {
+			// Characters differ, highlight them
+			result += ansi.Color(string(currentChar), highlightColor)
+		} else {
+			// Characters are the same, use base color
+			result += ansi.Color(string(currentChar), baseColor)
+		}
+		i++
+	}
+
+	return result
 }
 
 // Calculate distance of every diff-line to the closest change

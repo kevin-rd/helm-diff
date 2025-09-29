@@ -35,8 +35,9 @@ type ReportEntry struct {
 
 // ReportFormat to the context to make a changes report
 type ReportFormat struct {
-	output       func(r *Report, to io.Writer)
-	changestyles map[string]ChangeStyle
+	output             func(r *Report, to io.Writer)
+	changestyles       map[string]ChangeStyle
+	charLevelHighlight bool
 }
 
 // ChangeStyle for styling the report
@@ -56,6 +57,11 @@ type ReportTemplateSpec struct {
 
 // setupReportFormat: process output argument.
 func (r *Report) setupReportFormat(format string) {
+	r.setupReportFormatWithOptions(format, false)
+}
+
+// setupReportFormatWithOptions: process output argument with options.
+func (r *Report) setupReportFormatWithOptions(format string, charLevelHighlight bool) {
 	switch format {
 	case "simple":
 		setupSimpleReport(r)
@@ -68,6 +74,7 @@ func (r *Report) setupReportFormat(format string) {
 	default:
 		setupDiffReport(r)
 	}
+	r.format.charLevelHighlight = charLevelHighlight
 }
 
 func setupDyffReport(r *Report) {
@@ -156,7 +163,7 @@ func printDiffReport(r *Report, to io.Writer) {
 			entry.Key,
 			r.format.changestyles[entry.ChangeType].message,
 		)
-		printDiffRecords(entry.SuppressedKinds, entry.Kind, entry.Context, entry.Diffs, to)
+		printDiffRecordsWithOptions(entry.SuppressedKinds, entry.Kind, entry.Context, entry.Diffs, to, r.format.charLevelHighlight)
 	}
 }
 
