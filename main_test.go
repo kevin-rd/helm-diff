@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/databus23/helm-diff/v3/cmd"
+	"github.com/kevin-rd/helm-diff/v3/cmd"
 )
 
 func TestMain(m *testing.M) {

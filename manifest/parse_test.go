@@ -9,7 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
 
-	. "github.com/databus23/helm-diff/v3/manifest"
+	. "github.com/kevin-rd/helm-diff/v3/manifest"
 )
 
 func foundObjects(result map[string]*MappingResult) []string {

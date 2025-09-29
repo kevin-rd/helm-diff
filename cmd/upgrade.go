@@ -17,8 +17,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/cli-runtime/pkg/resource"
 
-	"github.com/databus23/helm-diff/v3/diff"
-	"github.com/databus23/helm-diff/v3/manifest"
+	"github.com/kevin-rd/helm-diff/v3/diff"
+	"github.com/kevin-rd/helm-diff/v3/manifest"
 )
 
 var (
