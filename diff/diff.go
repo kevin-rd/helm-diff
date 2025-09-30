@@ -562,12 +562,12 @@ func tryCharLevelHighlight(diff difflib.DiffRecord, diffs []difflib.DiffRecord, 
 	// Generate character-level diff
 	prefix := "- "
 	baseColor := "red"
-	highlightColor := "white+b:red" // white text on red background for differences
+	highlightColor := "red+b" // bold red for differences
 
 	if isAddition {
 		prefix = "+ "
 		baseColor = "green"
-		highlightColor = "white+b:green" // white text on green background for differences
+		highlightColor = "green+b" // bold green for differences
 	}
 
 	highlighted := highlightCharDifferences(text, compareText, baseColor, highlightColor)
